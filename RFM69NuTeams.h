@@ -224,7 +224,7 @@ class RFM69 {
     void readAllRegsCompact();
 	
 	bool TelemTxSetup(uint8_t rocketID);	//Telemetry setup. Rocket ID is unique to each rocket 
-	void TelemHandle();						//Handels the basics - waiting for permission to transmit, responding to pings
+	void TelemWait();						//Handels the basics - waiting for permission to transmit, responding to pings
 	bool TelemSendBasic(float time, float v1, float v2, float alt);	//Basic data transmission
 	bool TelemSendStand(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz);	//Standard data transmission
 	bool TelemSendFull(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz, float velX, float velY, float velZ, float posX, float posY, float posZ, float pitch, float roll, float yaw);//All of the data transmission
@@ -261,6 +261,5 @@ class RFM69 {
     //virtual void unselect();
 	
 	bool txReady = false;	//Have i recieved permission to transmit yet?
-	uint8_t rocketID;
 	
 #endif

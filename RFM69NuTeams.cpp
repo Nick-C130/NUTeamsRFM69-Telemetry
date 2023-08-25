@@ -957,69 +957,14 @@ uint8_t RFM69::setLNA(uint8_t newReg) {
   return oldReg;  // return the original value in case we need to restore it
 }
 
-// ListenMode sleep/timer - see ListenModeSleep example for proper usage!
-void RFM69::listenModeSleep(uint16_t millisInterval) {
-  setMode( RF69_MODE_STANDBY );
-  while ((readReg(REG_IRQFLAGS1) & RF_IRQFLAGS1_MODEREADY) == 0x00); // wait for ModeReady
 
-  detachInterrupt( _interruptNum );
-  //attachInterrupt( _interruptNum, delayIrq, RISING);
-  writeReg( REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_11 );
-  writeReg( REG_BITRATEMSB, RF_BITRATEMSB_200000);
-  writeReg( REG_BITRATELSB, RF_BITRATELSB_200000);
-  writeReg( REG_FDEVMSB, RF_FDEVMSB_100000 );
-  writeReg( REG_FDEVLSB, RF_FDEVLSB_100000 );
-  writeReg( REG_RXBW, RF_RXBW_DCCFREQ_000 | RF_RXBW_MANT_16 | RF_RXBW_EXP_0 );
-
-  uint8_t idleResol;
-  uint32_t divisor;
-  uint32_t microInterval = millisInterval * 1000L;
-
-  if( microInterval > 255 * 4100L ) {
-    idleResol = RF_LISTEN1_RESOL_IDLE_262000;
-    divisor = 262000;
-  } else if( microInterval > 255 * 64L ) {
-    idleResol = RF_LISTEN1_RESOL_IDLE_4100;
-    divisor = 4100;
-  } else {
-    idleResol = RF_LISTEN1_RESOL_IDLE_64;
-    divisor = 64;
-  }
-
-  writeReg( REG_LISTEN1, RF_LISTEN1_RESOL_RX_64 | idleResol | RF_LISTEN1_CRITERIA_RSSI | RF_LISTEN1_END_10 );
-  writeReg( REG_LISTEN2, (microInterval + (divisor >> 1 ) ) / divisor );
-  writeReg( REG_LISTEN3, 4 );
-  writeReg( REG_RSSITHRESH, 255 );
-  writeReg( REG_RXTIMEOUT2, 1 );
-  writeReg( REG_OPMODE, RF_OPMODE_SEQUENCER_ON | RF_OPMODE_STANDBY  );
-  writeReg( REG_OPMODE, RF_OPMODE_SEQUENCER_ON | RF_OPMODE_STANDBY | RF_OPMODE_LISTEN_ON  );
-  attachInterrupt( _interruptNum, delayIrq, RISING);
-  //must call sleep + interrupt handler 3 times here, then endListenModeSleep() - see ListenModeSleep example!
-}
-
-//=============================================================================
-// endListenModeSleep() - called by listenModeSleep()
-//=============================================================================
-void RFM69::endListenModeSleep() {
-  detachInterrupt( _interruptNum );
-  writeReg( REG_OPMODE, RF_OPMODE_SEQUENCER_ON | RF_OPMODE_LISTENABORT | RF_OPMODE_STANDBY );
-  writeReg( REG_OPMODE, RF_OPMODE_SEQUENCER_ON | RF_OPMODE_STANDBY );
-  writeReg( REG_RXTIMEOUT2, 0 );
-  setMode( RF69_MODE_STANDBY );
-  while ((readReg(REG_IRQFLAGS1) & RF_IRQFLAGS1_MODEREADY) == 0x00); // wait for ModeReady
-}
-
-//=============================================================================
-// delayIRQ() - called by listenModeSleep()
-//=============================================================================
-void RFM69::delayIrq() { return; }
-
-
-
-bool RFM69::TelemTxSetup(uint8_t ID){
-  _rocketID = ID;//Set the class variable of rocketID to the ID passed in, ID is a 8 bit int so it can be a direct correlation with node ID
-	
-  _interruptNum = digitalPinToInterrupt(_interruptPin);//Dont understand why there is an interupt pin, how this is supposed to be connected or anything
+bool RFM69::TelemTxSetup(uint8_t ID, uint8_t intPin, uint8_t csPin){	//Standard 
+  _networkID = ID;//Set the class variable of rocketID to the ID passed in, ID is a 8 bit int so it can be a direct correlation with node ID
+  _interruptPin = intPin;
+  _slaveSelectPin = csPin;
+  _isRFM69HW = true;	//Only ever use the HCW
+  
+  _interruptNum = digitalPinToInterrupt(_interruptPin);
   if (_interruptNum == (uint8_t)NOT_AN_INTERRUPT) return false;
 #ifdef RF69_ATTACHINTERRUPT_TAKES_PIN_NUMBER
     _interruptNum = _interruptPin;
@@ -1027,22 +972,14 @@ bool RFM69::TelemTxSetup(uint8_t ID){
   const uint8_t CONFIG[][2] = {
     /* 0x01 */ { REG_OPMODE, RF_OPMODE_SEQUENCER_ON | RF_OPMODE_LISTEN_OFF | RF_OPMODE_STANDBY },
     /* 0x02 */ { REG_DATAMODUL, RF_DATAMODUL_DATAMODE_PACKET | RF_DATAMODUL_MODULATIONTYPE_FSK | RF_DATAMODUL_MODULATIONSHAPING_00 }, // no shaping
-    /* 0x03 */ { REG_BITRATEMSB, RF_BITRATEMSB_55555}, // default: 4.8 KBPS
-    /* 0x04 */ { REG_BITRATELSB, RF_BITRATELSB_55555},
-    /* 0x05 */ { REG_FDEVMSB, RF_FDEVMSB_50000}, // default: 5KHz, (FDEV + BitRate / 2 <= 500KHz)
+    /* 0x03 */ { REG_BITRATEMSB, RF_BITRATEMSB_2400}, // default: 2.4 KBPS
+    /* 0x04 */ { REG_BITRATELSB, RF_BITRATELSB_2400},
+    /* 0x05 */ { REG_FDEVMSB, RF_FDEVMSB_50000}, // default: 5KHz, (FDEV + BitRate / 2 <= 500KHz) safe to about 1000ms-1
     /* 0x06 */ { REG_FDEVLSB, RF_FDEVLSB_50000},
 
-    /* 0x07 */ { REG_FRFMSB, (uint8_t) (freqBand==RF69_315MHZ ? RF_FRFMSB_315 : (freqBand==RF69_433MHZ ? RF_FRFMSB_433 : (freqBand==RF69_868MHZ ? RF_FRFMSB_868 : RF_FRFMSB_915))) },
-    /* 0x08 */ { REG_FRFMID, (uint8_t) (freqBand==RF69_315MHZ ? RF_FRFMID_315 : (freqBand==RF69_433MHZ ? RF_FRFMID_433 : (freqBand==RF69_868MHZ ? RF_FRFMID_868 : RF_FRFMID_915))) },
-    /* 0x09 */ { REG_FRFLSB, (uint8_t) (freqBand==RF69_315MHZ ? RF_FRFLSB_315 : (freqBand==RF69_433MHZ ? RF_FRFLSB_433 : (freqBand==RF69_868MHZ ? RF_FRFLSB_868 : RF_FRFLSB_915))) },
-
-    // looks like PA1 and PA2 are not implemented on RFM69W/CW, hence the max output power is 13dBm
-    // +17dBm and +20dBm are possible on RFM69HW
-    // +13dBm formula: Pout = -18 + OutputPower (with PA0 or PA1**)
-    // +17dBm formula: Pout = -14 + OutputPower (with PA1 and PA2)**
-    // +20dBm formula: Pout = -11 + OutputPower (with PA1 and PA2)** and high power PA settings (section 3.3.7 in datasheet)
-    ///* 0x11 */ { REG_PALEVEL, RF_PALEVEL_PA0_ON | RF_PALEVEL_PA1_OFF | RF_PALEVEL_PA2_OFF | RF_PALEVEL_OUTPUTPOWER_11111},
-    ///* 0x13 */ { REG_OCP, RF_OCP_ON | RF_OCP_TRIM_95 }, // over current protection (default is 95mA)
+    /* 0x07 */ { REG_FRFMSB, RF_FRFMSB_915}, //You will use 915mhz
+    /* 0x08 */ { REG_FRFMID, RF_FRFMID_915},
+    /* 0x09 */ { REG_FRFLSB, RF_FRFLSB_915},
 
     // RXBW defaults are { REG_RXBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_24 | RF_RXBW_EXP_5} (RxBw: 10.4KHz)
     /* 0x19 */ { REG_RXBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_16 | RF_RXBW_EXP_2 }, // (BitRate < 2 * RxBw)
@@ -1101,14 +1038,35 @@ bool RFM69::TelemTxSetup(uint8_t ID){
   attachInterrupt(_interruptNum, RFM69::isr0, RISING);
 
   _address = nodeID;
-#if defined(RF69_LISTENMODE_ENABLE)
-  selfPointer = this;
-  _freqBand = freqBand;
-  _networkID = networkID;
-#endif
+  
+  setMode(RF69_MODE_RX);
+  _spyMode = true;
   return true;
 };	//Telemetry setup. Rocket ID is unique to each rocket 
-void RFM69::TelemHandle();						//Handels the basics - waiting for permission to transmit, responding to pings
+
+void RFM69::TelemWait(){
+  if(receiveDone()){					//If data available
+	uint16_t senderIDTemp = SENDERID;	//Grab all the data
+	uint16_t rssidTemp = RSSI;
+	uint16_t targetIDTemp = TARGETID;
+	uint8_t dataTemp[RF69_MAX_DATA_LEN+1] = DATA;
+	if(ACKRequested && targetIDTemp == networkID){sendACK();}		//Send back acknoladgement if the message was directed at me
+	
+	if (targetIDTemp == 0 && senderIDTemp > 0 && senderIDTemp <= 9){				//If a reciever calls all stations
+	  delay(_networkID*2);						//Wait for rockets turn to transmit its id
+	  setMode(RF69_MODE_TX);					//Ready to transmit 
+	  send(senderIDTemp, networkID, 1, false);	//Transmit a message to the sender of the ping with my id, 1 byte and no acknoladgement nessercary 
+	}
+	
+	else if (targetIDTemp == networkID){		//If the message is meant for me
+		if(dataTemp[0:4] == 1){					//If the first byte of the data is 1
+			
+		}
+	}
+	
+	setMode(RF69_MODE_RX);					//Ready to recieve again 
+  }
+};						//Handels the basics - waiting for permission to transmit, responding to pings
 bool RFM69::TelemSendBasic(float time, float v1, float v2, float alt);	//Basic data transmission
 bool RFM69::TelemSendStand(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz);	//Standard data transmission
 bool RFM69::TelemSendFull(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz, float velX, float velY, float velZ, float posX, float posY, float posZ, float pitch, float roll, float yaw);//All of the data transmission
