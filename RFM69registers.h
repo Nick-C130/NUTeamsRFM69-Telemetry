@@ -291,16 +291,6 @@
 
 
 // RegFrf (MHz) - carrier frequency
-// 315Mhz band
-#define RF_FRFMSB_314             0x4E
-#define RF_FRFMID_314             0x80
-#define RF_FRFLSB_314             0x00
-#define RF_FRFMSB_315             0x4E
-#define RF_FRFMID_315             0xC0
-#define RF_FRFLSB_315             0x00
-#define RF_FRFMSB_316             0x4F
-#define RF_FRFMID_316             0x00
-#define RF_FRFLSB_316             0x00
 // 433mhz band
 #define RF_FRFMSB_433             0x6C
 #define RF_FRFMID_433             0x40
@@ -311,31 +301,6 @@
 #define RF_FRFMSB_435             0x6C
 #define RF_FRFMID_435             0xC0
 #define RF_FRFLSB_435             0x00
-// 868Mhz band
-#define RF_FRFMSB_863             0xD7
-#define RF_FRFMID_863             0xC0
-#define RF_FRFLSB_863             0x00
-#define RF_FRFMSB_864             0xD8
-#define RF_FRFMID_864             0x00
-#define RF_FRFLSB_864             0x00
-#define RF_FRFMSB_865             0xD8
-#define RF_FRFMID_865             0x40
-#define RF_FRFLSB_865             0x00
-#define RF_FRFMSB_866             0xD8
-#define RF_FRFMID_866             0x80
-#define RF_FRFLSB_866             0x00
-#define RF_FRFMSB_867             0xD8
-#define RF_FRFMID_867             0xC0
-#define RF_FRFLSB_867             0x00
-#define RF_FRFMSB_868             0xD9
-#define RF_FRFMID_868             0x00
-#define RF_FRFLSB_868             0x00
-#define RF_FRFMSB_869             0xD9
-#define RF_FRFMID_869             0x40
-#define RF_FRFLSB_869             0x00
-#define RF_FRFMSB_870             0xD9
-#define RF_FRFMID_870             0x80
-#define RF_FRFLSB_870             0x00
 // 915Mhz band
 #define RF_FRFMSB_902             0xE1
 #define RF_FRFMID_902             0x80

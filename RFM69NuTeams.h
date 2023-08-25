@@ -23,8 +23,8 @@
 // Please maintain this license information along with authorship
 // and copyright notices in any redistribution of this code
 // **********************************************************************************
-#ifndef RFM69_h
-#define RFM69_h
+#ifndef RFM69_NuTeams_h
+#define RFM69_NuTeams_h
 #include <Arduino.h>            // assumes Arduino IDE v1.0 or greater
 #include <SPI.h>
 
@@ -32,6 +32,7 @@
 //Platform and digitalPinToInterrupt definitions credit to RadioHead//
 //////////////////////////////////////////////////////////////////////
 // Select platform automatically, if possible
+//IDK what platform the teensy uses probably best to leave in anyway
 #ifndef RF69_PLATFORM
  #if (MPIDE>=150 && defined(ARDUINO))
   // Using ChipKIT Core on Arduino IDE
@@ -145,7 +146,7 @@
 #endif
 
 #define RF69_MAX_DATA_LEN       61 // to take advantage of the built in AES/CRC we want to limit the frame size to the internal FIFO size (66 bytes - 3 bytes overhead - 2 bytes crc)
-#define CSMA_LIMIT              -90 // upper RX signal sensitivity threshold in dBm for carrier sense access
+#define CSMA_LIMIT              -90 // upper RX signal sensitivity threshold in dBm for carrier sense access - This is to check if something else is transmitting before transmitting yourself
 #define RF69_MODE_SLEEP         0 // XTAL OFF
 #define RF69_MODE_STANDBY       1 // XTAL ON
 #define RF69_MODE_SYNTH         2 // PLL ON
@@ -153,9 +154,7 @@
 #define RF69_MODE_TX            4 // TX MODE
 
 // available frequency bands
-#define RF69_315MHZ            31 // non trivial values to avoid misconfiguration
-#define RF69_433MHZ            43
-#define RF69_868MHZ            86
+#define RF69_433MHZ            43 // non trivial values to avoid misconfiguration
 #define RF69_915MHZ            91
 
 #define null                  0
@@ -170,18 +169,6 @@
 #define RFM69_CTL_REQACK    0x40
 
 #define RFM69_ACK_TIMEOUT   30  // 30ms roundtrip req for 61byte packets
-
-//Native hardware ListenMode is experimental
-//It was determined to be buggy and unreliable, see https://lowpowerlab.com/forum/low-power-techniques/ultra-low-power-listening-mode-for-battery-nodes/msg20261/#msg20261
-//uncomment to try ListenMode, adds ~1K to compiled size
-//FYI - 10bit addressing is not supported in ListenMode
-//#define RF69_LISTENMODE_ENABLE
-
-#if defined(RF69_LISTENMODE_ENABLE)
-  // By default, receive for 256uS in listen mode and idle for ~1s
-  #define  DEFAULT_LISTEN_RX_US 256
-  #define  DEFAULT_LISTEN_IDLE_US 1000000
-#endif
 
 class RFM69 {
   public:
@@ -235,13 +222,12 @@ class RFM69 {
     void writeReg(uint8_t addr, uint8_t val);
     void readAllRegs();
     void readAllRegsCompact();
-
-    // ListenMode sleep/timer
-    void listenModeSleep(uint16_t millisInterval);
-    void endListenModeSleep();
-    virtual void setMode(uint8_t mode);
-    virtual void select();
-    virtual void unselect();
+	
+	bool TelemTxSetup(uint8_t rocketID);	//Telemetry setup. Rocket ID is unique to each rocket 
+	void TelemHandle();						//Handels the basics - waiting for permission to transmit, responding to pings
+	bool TelemSendBasic(float time, float v1, float v2, float alt);	//Basic data transmission
+	bool TelemSendStand(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz);	//Standard data transmission
+	bool TelemSendFull(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz, float velX, float velY, float velZ, float posX, float posY, float posZ, float pitch, float roll, float yaw);//All of the data transmission
 
   protected:
     static void isr0();
@@ -250,9 +236,6 @@ class RFM69 {
     static volatile bool _haveData;
     static RFM69 *_instance;
     virtual void sendFrame(uint16_t toAddress, const void* buffer, uint8_t size, bool requestACK=false, bool sendACK=false);
-
-    // for ListenMode sleep/timer
-    static void delayIrq();
 
     uint8_t _slaveSelectPin;
     uint8_t _interruptPin;
@@ -276,56 +259,7 @@ class RFM69 {
     virtual void setHighPowerRegs(bool enable);
     //virtual void select();
     //virtual void unselect();
-
-#if defined(RF69_LISTENMODE_ENABLE)
-  static RFM69* selfPointer;
-  //=============================================================================
-  //                     ListenMode specific declarations  
-  //=============================================================================
-  public:
-    // When we receive a packet in listen mode, this is the time left in the sender's burst.
-    // You need to wait at least this long before trying to reply.
-    static volatile uint16_t RF69_LISTEN_BURST_REMAINING_MS;
-    
-    void listenModeStart(void);
-    void listenModeEnd(void);
-    void listenModeHighSpeed(bool highSpeed) { _isHighSpeed = highSpeed; }
-    
-    // rx and idle duration in microseconds
-    bool listenModeSetDurations(uint32_t& rxDuration, uint32_t& idleDuration);
-
-    // The values passed to listenModeSetDurations() may be slightly different to accomodate
-    // what is allowed by the radio. This function returns the actual values used.
-    void listenModeGetDurations(uint32_t& rxDuration, uint32_t& idleDuration);
-
-    // This repeatedly sends the message to the target node for the duration
-    // of an entire listen cycle. The amount of time remaining in the burst
-    // is transmitted to the receiver, and it is expected that the receiver
-    // wait for the burst to end before attempting a reply.
-    // See RF69_LISTEN_BURST_REMAINING_MS above.
-    void listenModeSendBurst(uint8_t targetNode, const void* buffer, uint8_t size);
-
-  protected:
-    void listenModeInterruptHandler(void);
-    void listenModeApplyHighSpeedSettings();
-    void listenModeReset(); //resets variables used on the receiving end
-    bool reinitRadio(void);
-    static void listenModeIrq();
-
-    bool _isHighSpeed;
-    bool _haveEncryptKey;
-    char _encryptKey[16];
-
-    // Save these so we can reinitialize the radio after sending a burst
-    // or exiting listen mode.
-    uint8_t _freqBand;
-    uint8_t _networkID;
-    uint8_t _rxListenCoef;
-    uint8_t _rxListenResolution;
-    uint8_t _idleListenCoef;
-    uint8_t _idleListenResolution;
-    uint32_t _listenCycleDurationUs;
-#endif
-};
-
+	
+	bool txReady = false;	//Have i recieved permission to transmit yet?
+	
 #endif

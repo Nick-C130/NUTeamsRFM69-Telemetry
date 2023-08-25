@@ -1,12 +1,12 @@
 {
-  "name": "RFM69",
-  "version": "1.5.2",
-  "keywords": "rf, radio, wireless, spi",
-  "description": "RFM69 library for RFM69W, RFM69HW, RFM69CW, RFM69HCW (semtech SX1231, SX1231H)",
+  "name": "NuTeamsRFM69",
+  "version": "1.0",
+  "keywords": "rf, radio, wireless, spi, nuTeams, Telemetry",
+  "description": "RFM69 Telemetry library for NuTeams",
   "repository":
   {
     "type": "git",
-    "url": "https://github.com/LowPowerLab/RFM69.git"
+    "url": "https://github.com/Nick-C130/NUTeamsRFM69-Telemetry"
   },
   "frameworks": "arduino",
   "platforms": "atmelavr",
