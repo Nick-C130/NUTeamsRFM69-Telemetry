@@ -105,9 +105,9 @@ bool RFM69::initialize(uint8_t freqBand, uint16_t nodeID, uint8_t networkID) {
     /* 0x6F */ { REG_TESTDAGC, RF_DAGC_IMPROVED_LOWBETA0 }, // run DAGC continuously in RX mode for Fading Margin Improvement, recommended default for AfcLowBetaOn=0
     {255, 0}
   };
-
-  digitalWrite(_slaveSelectPin, HIGH);
+  
   pinMode(_slaveSelectPin, OUTPUT);
+  digitalWrite(_slaveSelectPin, HIGH);
   if(_spi == nullptr){
     _spi = &SPI;
   }
@@ -407,7 +407,7 @@ void RFM69::interruptHandler() {
     TARGETID |= (uint16_t(CTLbyte) & 0x0C) << 6; //10 bit address (most significant 2 bits stored in bits(2,3) of CTL byte
     SENDERID |= (uint16_t(CTLbyte) & 0x03) << 8; //10 bit address (most sifnigicant 2 bits stored in bits(0,1) of CTL byte
 
-    if(!(_spyMode || TARGETID == _address || TARGETID == RF69_BROADCAST_ADDR) // match this node's address, or broadcast address or anything in spy mode
+    if(!(_spyMode || TARGETID == _address || TARGETID == RF69_BROADCAST_ADDR) // match this node's address, or broadcast address or anything in spy mode	if the reciever is not in recieve all (spy) mode, or packet is not targeted at self or packet is to short to be valid ignore
        || PAYLOADLEN < 3) // address situation could receive packets that are malformed and don't fit this libraries extra fields
     {
       PAYLOADLEN = 0;
@@ -1014,262 +1014,101 @@ void RFM69::endListenModeSleep() {
 //=============================================================================
 void RFM69::delayIrq() { return; }
 
-//=============================================================================
-//                     ListenMode specific functions  
-//=============================================================================
-#if defined(RF69_LISTENMODE_ENABLE)
-RFM69* RFM69::selfPointer=0;
-volatile uint16_t RFM69::RF69_LISTEN_BURST_REMAINING_MS = 0;
 
-//=============================================================================
-// reinitRadio() - use base class initialization with saved values
-//=============================================================================
-bool RFM69::reinitRadio() {
-  bool haveEncryptKey = _haveEncryptKey;
-  if (!initialize(_freqBand, _address, _networkID)) return false;
-  if (haveEncryptKey) encrypt(_encryptKey); // Restore the encryption key if necessary
-  if (_isHighSpeed) writeReg(REG_LNA, (readReg(REG_LNA) & ~0x3) | RF_LNA_GAINSELECT_AUTO);
-  return true;
-}
 
-static uint32_t getUsForResolution(uint8_t resolution) {
-  switch (resolution) {
-    case RF_LISTEN1_RESOL_RX_64:
-    case RF_LISTEN1_RESOL_IDLE_64:
-      return 64;
-    case RF_LISTEN1_RESOL_RX_4100:
-    case RF_LISTEN1_RESOL_IDLE_4100:
-      return 4100;
-    case RF_LISTEN1_RESOL_RX_262000:
-    case RF_LISTEN1_RESOL_IDLE_262000:
-      return 262000;
-    default:
-      // Whoops
-      return 0;
-  }
-}
+bool RFM69::TelemTxSetup(uint8_t ID){
+  _rocketID = ID;//Set the class variable of rocketID to the ID passed in, ID is a 8 bit int so it can be a direct correlation with node ID
+	
+  _interruptNum = digitalPinToInterrupt(_interruptPin);//Dont understand why there is an interupt pin, how this is supposed to be connected or anything
+  if (_interruptNum == (uint8_t)NOT_AN_INTERRUPT) return false;
+#ifdef RF69_ATTACHINTERRUPT_TAKES_PIN_NUMBER
+    _interruptNum = _interruptPin;
+#endif
+  const uint8_t CONFIG[][2] = {
+    /* 0x01 */ { REG_OPMODE, RF_OPMODE_SEQUENCER_ON | RF_OPMODE_LISTEN_OFF | RF_OPMODE_STANDBY },
+    /* 0x02 */ { REG_DATAMODUL, RF_DATAMODUL_DATAMODE_PACKET | RF_DATAMODUL_MODULATIONTYPE_FSK | RF_DATAMODUL_MODULATIONSHAPING_00 }, // no shaping
+    /* 0x03 */ { REG_BITRATEMSB, RF_BITRATEMSB_55555}, // default: 4.8 KBPS
+    /* 0x04 */ { REG_BITRATELSB, RF_BITRATELSB_55555},
+    /* 0x05 */ { REG_FDEVMSB, RF_FDEVMSB_50000}, // default: 5KHz, (FDEV + BitRate / 2 <= 500KHz)
+    /* 0x06 */ { REG_FDEVLSB, RF_FDEVLSB_50000},
 
-static uint32_t getCoefForResolution(uint8_t resolution, uint32_t duration) {
-  uint32_t resolDuration = getUsForResolution(resolution);
-  uint32_t result = duration / resolDuration;
+    /* 0x07 */ { REG_FRFMSB, (uint8_t) (freqBand==RF69_315MHZ ? RF_FRFMSB_315 : (freqBand==RF69_433MHZ ? RF_FRFMSB_433 : (freqBand==RF69_868MHZ ? RF_FRFMSB_868 : RF_FRFMSB_915))) },
+    /* 0x08 */ { REG_FRFMID, (uint8_t) (freqBand==RF69_315MHZ ? RF_FRFMID_315 : (freqBand==RF69_433MHZ ? RF_FRFMID_433 : (freqBand==RF69_868MHZ ? RF_FRFMID_868 : RF_FRFMID_915))) },
+    /* 0x09 */ { REG_FRFLSB, (uint8_t) (freqBand==RF69_315MHZ ? RF_FRFLSB_315 : (freqBand==RF69_433MHZ ? RF_FRFLSB_433 : (freqBand==RF69_868MHZ ? RF_FRFLSB_868 : RF_FRFLSB_915))) },
 
-  // If the next-higher coefficient is closer, use that
-  if (abs(duration - ((result + 1) * resolDuration)) < abs(duration - (result * resolDuration)))
-    return result + 1;
+    // looks like PA1 and PA2 are not implemented on RFM69W/CW, hence the max output power is 13dBm
+    // +17dBm and +20dBm are possible on RFM69HW
+    // +13dBm formula: Pout = -18 + OutputPower (with PA0 or PA1**)
+    // +17dBm formula: Pout = -14 + OutputPower (with PA1 and PA2)**
+    // +20dBm formula: Pout = -11 + OutputPower (with PA1 and PA2)** and high power PA settings (section 3.3.7 in datasheet)
+    ///* 0x11 */ { REG_PALEVEL, RF_PALEVEL_PA0_ON | RF_PALEVEL_PA1_OFF | RF_PALEVEL_PA2_OFF | RF_PALEVEL_OUTPUTPOWER_11111},
+    ///* 0x13 */ { REG_OCP, RF_OCP_ON | RF_OCP_TRIM_95 }, // over current protection (default is 95mA)
 
-  return result;
-}
-
-static bool chooseResolutionAndCoef(uint8_t *resolutions, uint32_t duration, uint8_t& resolOut, uint8_t& coefOut) {
-  for (int i = 0; resolutions[i]; i++) {
-    uint32_t coef = getCoefForResolution(resolutions[i], duration);
-    if (coef <= 255) {
-      coefOut = coef;
-      resolOut = resolutions[i];
-      return true;
-    }
-  }
-
-  // out of range
-  return false;
-}
-
-bool RFM69::listenModeSetDurations(uint32_t& rxDuration, uint32_t& idleDuration) {
-  uint8_t rxResolutions[] = { RF_LISTEN1_RESOL_RX_64, RF_LISTEN1_RESOL_RX_4100, RF_LISTEN1_RESOL_RX_262000, 0 };
-  uint8_t idleResolutions[] = { RF_LISTEN1_RESOL_IDLE_64, RF_LISTEN1_RESOL_IDLE_4100, RF_LISTEN1_RESOL_IDLE_262000, 0 };
-
-  if (!chooseResolutionAndCoef(rxResolutions, rxDuration, _rxListenResolution, _rxListenCoef))
-    return false;
-
-  if (!chooseResolutionAndCoef(idleResolutions, idleDuration, _idleListenResolution, _idleListenCoef))
-    return false;
-
-  rxDuration = getUsForResolution(_rxListenResolution) * _rxListenCoef;
-  idleDuration = getUsForResolution(_idleListenResolution) * _idleListenCoef;
-  _listenCycleDurationUs = rxDuration + idleDuration;
-
-  return true;
-}
-
-void RFM69::listenModeGetDurations(uint32_t &rxDuration, uint32_t &idleDuration) {
-  rxDuration = getUsForResolution(_rxListenResolution) * _rxListenCoef;
-  idleDuration = getUsForResolution(_idleListenResolution) * _idleListenCoef;
-}
-
-void RFM69::listenModeReset(void) {
-  DATALEN = 0;
-  SENDERID = 0;
-  TARGETID = 0;
-  PAYLOADLEN = 0;
-  ACK_REQUESTED = 0;
-  ACK_RECEIVED = 0;
-  RF69_LISTEN_BURST_REMAINING_MS = 0;
-}
-
-//=============================================================================
-// irq handler, simply calls listenModeInterruptHandler method so internal methods can be accessed easily
-//=============================================================================
-ISR_PREFIX void RFM69::listenModeIrq() { selfPointer->listenModeInterruptHandler(); }
-
-//=============================================================================
-// listenModeInterruptHandler() - only called by listen irq handler
-//=============================================================================
-void RFM69::listenModeInterruptHandler(void) {
-  if (DATALEN != 0) return;
-
-  listenModeReset();
-  noInterrupts();
-  select();
-
-  union {                       // union to simplify addressing of long and short parts of time offset
-    uint32_t l;
-    uint8_t  b[4];
-  } burstRemaining;
-
-  burstRemaining.l = 0;
-
-  _spi->transfer(REG_FIFO & 0x7F);
-  PAYLOADLEN = _spi->transfer(0);
-  PAYLOADLEN = PAYLOADLEN > 64 ? 64 : PAYLOADLEN; // precaution
-  TARGETID = _spi->transfer(0);
-  if(!(_spyMode || TARGETID == _address || TARGETID == RF69_BROADCAST_ADDR) // match this node's address, or broadcast address or anything in spy mode
-     || PAYLOADLEN < 3) // address situation could receive packets that are malformed and don't fit this library's extra fields
-  {
-    listenModeReset();
-    goto out;
-  }
-
-  // We've read the target, and will read the sender id and two time offset bytes for a total of 4 bytes
-  DATALEN = PAYLOADLEN - 4;
-  SENDERID = _spi->transfer(0);
-  burstRemaining.b[0] =  _spi->transfer(0);  // and get the time remaining
-  burstRemaining.b[1] =  _spi->transfer(0);
-  RF69_LISTEN_BURST_REMAINING_MS = burstRemaining.l;
-
-  for (uint8_t i = 0; i < DATALEN; i++)
-    DATA[i] = _spi->transfer(0);
-
-  if (DATALEN < RF69_MAX_DATA_LEN)
-    DATA[DATALEN] = 0; // add null at end of string
-
-out:
-  unselect();
-  interrupts();
-}
-
-//=============================================================================
-// listenModeStart() - switch radio to Listen Mode in prep for sleep until burst
-//=============================================================================
-void RFM69::listenModeStart(void) {
-  //pRadio = this;
-  while (readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PACKETSENT == 0x00); // wait for ModeReady
-  listenModeReset();
-
-  detachInterrupt(_interruptNum);
-  attachInterrupt(_interruptNum, listenModeIrq, RISING);
-  setMode(RF69_MODE_STANDBY);
-  writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_01);
-  writeReg(REG_FRFMSB, readReg(REG_FRFMSB) + 1);
-  writeReg(REG_FRFLSB, readReg(REG_FRFLSB));      // MUST write to LSB to affect change!
-
-  listenModeApplyHighSpeedSettings();
-
-  writeReg(REG_PACKETCONFIG1, RF_PACKET1_FORMAT_VARIABLE | RF_PACKET1_DCFREE_WHITENING | RF_PACKET1_CRC_ON | RF_PACKET1_CRCAUTOCLEAR_ON);
-  writeReg(REG_PACKETCONFIG2, RF_PACKET2_RXRESTARTDELAY_NONE | RF_PACKET2_AUTORXRESTART_ON | RF_PACKET2_AES_OFF);
-  writeReg(REG_SYNCVALUE1, 0x5A);
-  writeReg(REG_SYNCVALUE2, 0x5A);
-  writeReg(REG_LISTEN1, _rxListenResolution | _idleListenResolution | RF_LISTEN1_CRITERIA_RSSI | RF_LISTEN1_END_10);
-  writeReg(REG_LISTEN2, _idleListenCoef);
-  writeReg(REG_LISTEN3, _rxListenCoef);
-  writeReg(REG_RSSITHRESH, 180);
-  writeReg(REG_RXTIMEOUT2, 75);
-  writeReg(REG_OPMODE, RF_OPMODE_SEQUENCER_ON | RF_OPMODE_STANDBY);
-  writeReg(REG_OPMODE, RF_OPMODE_SEQUENCER_ON | RF_OPMODE_LISTEN_ON  | RF_OPMODE_STANDBY);
-}
-
-//=============================================================================
-// listenModeEnd() - exit listen mode and reinit the radio
-//=============================================================================
-void RFM69::listenModeEnd(void) {
-  detachInterrupt(_interruptNum);
-  writeReg(REG_OPMODE, RF_OPMODE_SEQUENCER_ON | RF_OPMODE_LISTENABORT | RF_OPMODE_STANDBY);
-  writeReg(REG_OPMODE, RF_OPMODE_SEQUENCER_ON | RF_OPMODE_STANDBY);
-  writeReg(REG_RXTIMEOUT2, 0);
-  setMode(RF69_MODE_STANDBY);
-  while ((readReg(REG_IRQFLAGS1) & RF_IRQFLAGS1_MODEREADY) == 0x00); // wait for ModeReady
-  listenModeReset();
-  reinitRadio();
-}
-
-void RFM69::listenModeApplyHighSpeedSettings() {
-  if (!_isHighSpeed) return;
-  writeReg(REG_BITRATEMSB, RF_BITRATEMSB_200000);
-  writeReg(REG_BITRATELSB, RF_BITRATELSB_200000);
-  writeReg(REG_FDEVMSB, RF_FDEVMSB_100000);
-  writeReg(REG_FDEVLSB, RF_FDEVLSB_100000);
-  writeReg( REG_RXBW, RF_RXBW_DCCFREQ_000 | RF_RXBW_MANT_20 | RF_RXBW_EXP_0 );
+    // RXBW defaults are { REG_RXBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_24 | RF_RXBW_EXP_5} (RxBw: 10.4KHz)
+    /* 0x19 */ { REG_RXBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_16 | RF_RXBW_EXP_2 }, // (BitRate < 2 * RxBw)
+    //for BR-19200: /* 0x19 */ { REG_RXBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_24 | RF_RXBW_EXP_3 },
+    /* 0x25 */ { REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_01 }, // DIO0 is the only IRQ we're using
+    /* 0x26 */ { REG_DIOMAPPING2, RF_DIOMAPPING2_CLKOUT_OFF }, // DIO5 ClkOut disable for power saving
+    /* 0x28 */ { REG_IRQFLAGS2, RF_IRQFLAGS2_FIFOOVERRUN }, // writing to this bit ensures that the FIFO & status flags are reset
+    /* 0x29 */ { REG_RSSITHRESH, 220 }, // must be set to dBm = (-Sensitivity / 2), default is 0xE4 = 228 so -114dBm
+    ///* 0x2D */ { REG_PREAMBLELSB, RF_PREAMBLESIZE_LSB_VALUE } // default 3 preamble bytes 0xAAAAAA
+    /* 0x2E */ { REG_SYNCCONFIG, RF_SYNC_ON | RF_SYNC_FIFOFILL_AUTO | RF_SYNC_SIZE_2 | RF_SYNC_TOL_0 },
+    /* 0x2F */ { REG_SYNCVALUE1, 0x2D },      // attempt to make this compatible with sync1 byte of RFM12B lib
+    /* 0x30 */ { REG_SYNCVALUE2, networkID }, // NETWORK ID
+    //* 0x31 */ { REG_SYNCVALUE3, 0xAA },
+    //* 0x31 */ { REG_SYNCVALUE4, 0xBB },
+    /* 0x37 */ { REG_PACKETCONFIG1, RF_PACKET1_FORMAT_VARIABLE | RF_PACKET1_DCFREE_OFF | RF_PACKET1_CRC_ON | RF_PACKET1_CRCAUTOCLEAR_ON | RF_PACKET1_ADRSFILTERING_OFF },
+    /* 0x38 */ { REG_PAYLOADLENGTH, 66 }, // in variable length mode: the max frame size, not used in TX
+    ///* 0x39 */ { REG_NODEADRS, nodeID }, // turned off because we're not using address filtering
+    /* 0x3C */ { REG_FIFOTHRESH, RF_FIFOTHRESH_TXSTART_FIFONOTEMPTY | RF_FIFOTHRESH_VALUE }, // TX on FIFO not empty
+    /* 0x3D */ { REG_PACKETCONFIG2, RF_PACKET2_RXRESTARTDELAY_2BITS | RF_PACKET2_AUTORXRESTART_OFF | RF_PACKET2_AES_OFF }, // RXRESTARTDELAY must match transmitter PA ramp-down time (bitrate dependent)
+    //for BR-19200: /* 0x3D */ { REG_PACKETCONFIG2, RF_PACKET2_RXRESTARTDELAY_NONE | RF_PACKET2_AUTORXRESTART_ON | RF_PACKET2_AES_OFF }, // RXRESTARTDELAY must match transmitter PA ramp-down time (bitrate dependent)
+    /* 0x6F */ { REG_TESTDAGC, RF_DAGC_IMPROVED_LOWBETA0 }, // run DAGC continuously in RX mode for Fading Margin Improvement, recommended default for AfcLowBetaOn=0
+    {255, 0}
+  };
   
-  // Force LNA to the highest gain
-  //writeReg(REG_LNA, (readReg(REG_LNA) << 2) | RF_LNA_GAINSELECT_MAX);
-}
-
-//=============================================================================
-// sendBurst() - send a burst of packets to a sleeping listening node (or all)
-//=============================================================================
-void RFM69::listenModeSendBurst(uint8_t targetNode, const void* buffer, uint8_t size) {
-  detachInterrupt(_interruptNum);
-  setMode(RF69_MODE_STANDBY);
-  writeReg(REG_PACKETCONFIG1, RF_PACKET1_FORMAT_VARIABLE | RF_PACKET1_DCFREE_WHITENING | RF_PACKET1_CRC_ON | RF_PACKET1_CRCAUTOCLEAR_ON );
-  writeReg(REG_PACKETCONFIG2, RF_PACKET2_RXRESTARTDELAY_NONE | RF_PACKET2_AUTORXRESTART_ON | RF_PACKET2_AES_OFF);
-  writeReg(REG_SYNCVALUE1, 0x5A);
-  writeReg(REG_SYNCVALUE2, 0x5A);
-  listenModeApplyHighSpeedSettings();
-  writeReg(REG_FRFMSB, readReg(REG_FRFMSB) + 1);
-  writeReg(REG_FRFLSB, readReg(REG_FRFLSB));      // MUST write to LSB to affect change!
-
-  union { // union to simplify addressing of long and short parts of time offset
-    int32_t l;
-    uint8_t b[4];
-  } timeRemaining;
-
-  uint16_t cycleDurationMs = _listenCycleDurationUs / 1000;
-  timeRemaining.l = cycleDurationMs;
-
-#ifdef RF69_WL_DEBUG
-  Serial.print("Sending burst for ");
-  Serial.print(cycleDurationMs, DEC);
-  Serial.println(" ms");
-#endif
-
-  setMode(RF69_MODE_TX);
-  uint32_t numSent = 0;
-  uint32_t startTime = millis();
-
-  while(timeRemaining.l > 0) {
-    noInterrupts();
-    // write to FIFO
-    select();
-    _spi->transfer(REG_FIFO | 0x80);
-    _spi->transfer(size + 4);      // two bytes for target and sender node, two bytes for the burst time remaining
-    _spi->transfer(targetNode);
-    _spi->transfer(_address);
-
-    // We send the burst time remaining with the packet so the receiver knows how long to wait before trying to reply
-    _spi->transfer(timeRemaining.b[0]);
-    _spi->transfer(timeRemaining.b[1]);
-
-    for (uint8_t i = 0; i < size; i++) {
-      _spi->transfer(((uint8_t*) buffer)[i]);
-    }
-
-    unselect();
-    interrupts();
-
-    while ((readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_FIFONOTEMPTY) != 0x00);  // make sure packet is sent before putting more into the FIFO
-    timeRemaining.l = cycleDurationMs - (millis() - startTime);
+  pinMode(_slaveSelectPin, OUTPUT);
+  digitalWrite(_slaveSelectPin, HIGH);
+  if(_spi == nullptr){
+    _spi = &SPI;
   }
+  _spi->begin();
 
-  setMode(RF69_MODE_STANDBY);
-  reinitRadio();
-}
+#ifdef SPI_HAS_TRANSACTION
+  _settings = SPISettings(8000000, MSBFIRST, SPI_MODE0);
 #endif
+
+  uint32_t start = millis();
+  uint8_t timeout = 50;
+  do writeReg(REG_SYNCVALUE1, 0xAA); while (readReg(REG_SYNCVALUE1) != 0xaa && millis()-start < timeout);
+  if (millis()-start >= timeout) return false;
+  start = millis();
+  do writeReg(REG_SYNCVALUE1, 0x55); while (readReg(REG_SYNCVALUE1) != 0x55 && millis()-start < timeout);
+  if (millis()-start >= timeout) return false;
+
+  for (uint8_t i = 0; CONFIG[i][0] != 255; i++)
+    writeReg(CONFIG[i][0], CONFIG[i][1]);
+
+  // Encryption is persistent between resets and can trip you up during debugging.
+  // Disable it during initialization so we always start from a known state.
+  encrypt(0);
+
+  setHighPower(_isRFM69HW); // called regardless if it's a RFM69W or RFM69HW (at this point _isRFM69HW may not be explicitly set by constructor and setHighPower() may not have been called yet (ie called after initialize() call)
+  setMode(RF69_MODE_STANDBY);
+  start = millis();
+  while (((readReg(REG_IRQFLAGS1) & RF_IRQFLAGS1_MODEREADY) == 0x00) && millis()-start < timeout); // wait for ModeReady
+  if (millis()-start >= timeout) return false;
+  attachInterrupt(_interruptNum, RFM69::isr0, RISING);
+
+  _address = nodeID;
+#if defined(RF69_LISTENMODE_ENABLE)
+  selfPointer = this;
+  _freqBand = freqBand;
+  _networkID = networkID;
+#endif
+  return true;
+};	//Telemetry setup. Rocket ID is unique to each rocket 
+void RFM69::TelemHandle();						//Handels the basics - waiting for permission to transmit, responding to pings
+bool RFM69::TelemSendBasic(float time, float v1, float v2, float alt);	//Basic data transmission
+bool RFM69::TelemSendStand(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz);	//Standard data transmission
+bool RFM69::TelemSendFull(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz, float velX, float velY, float velZ, float posX, float posY, float posZ, float pitch, float roll, float yaw);//All of the data transmission

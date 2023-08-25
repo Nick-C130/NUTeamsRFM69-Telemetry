@@ -1,0 +1,14 @@
+Max data length for one send is 61 bytes
+	15 floats with no spaces and 1 byte left over
+
+Using the RMF69HCW
+	Higher power
+	0-22 power levels
+	-2 to 20dbm tx power
+
+Ensure call setHighPower during initalisation as we are using the HCW
+
+Frequencies
+	915.5mhz 	standard pings etc
+	910mhz 		Reserved for rocket launch commands
+	916mhz		Main data frequency

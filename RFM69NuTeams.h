@@ -261,5 +261,6 @@ class RFM69 {
     //virtual void unselect();
 	
 	bool txReady = false;	//Have i recieved permission to transmit yet?
+	uint8_t rocketID;
 	
 #endif

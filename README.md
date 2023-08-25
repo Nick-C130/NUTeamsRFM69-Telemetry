@@ -26,4 +26,3 @@ See [this tutorial](https://www.arduino.cc/en/Guide/Libraries) on Arduino librar
 
 ### Hardware & programming
 See examples for code and data formatts
-Ensure there is no delay in void Loop() to ensure the best operation of the automatic identification/deconfliction systems
