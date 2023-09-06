@@ -1059,14 +1059,49 @@ void RFM69::TelemWait(){
 	}
 	
 	else if (targetIDTemp == networkID){		//If the message is meant for me
-		if(dataTemp[0:4] == 1){					//If the first byte of the data is 1
-			
+		if(dataTemp[0:4] == 1){					//If the first byte of the data is 1 its an activation command
+			recID = senderIDTemp;
+			setMode(RF69_MODE_TX);
+			uint16_t ackTemp = [11,networkID];
+			send(recID, ackTemp, 1, false);			//Send back an 11 and my ID to confirm active status
+			active = true;
+		}
+		if(dataTemp[0:4] == 0){					//If the first byte of the data is 0 its an deactivation command
+			recID = senderIDTemp;
+			setMode(RF69_MODE_TX);
+			uint16_t ackTemp = [12,networkID];
+			send(recID, ackTemp, 1, false);			//Send back an 12 and my ID to confirm pasive status
+			active = false;
 		}
 	}
 	
 	setMode(RF69_MODE_RX);					//Ready to recieve again 
   }
 };						//Handels the basics - waiting for permission to transmit, responding to pings
-bool RFM69::TelemSendBasic(float time, float v1, float v2, float alt);	//Basic data transmission
-bool RFM69::TelemSendStand(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz);	//Standard data transmission
-bool RFM69::TelemSendFull(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz, float velX, float velY, float velZ, float posX, float posY, float posZ, float pitch, float roll, float yaw);//All of the data transmission
+
+bool RFM69::TelemSendBasic(float time, float v1, float v2, float alt){
+	if(!active){return false;}
+	  setMode(RF69_MODE_TX);						//Ready to transmit 
+	  uint16_t dataTemp = [1,time, v1, v2, alt];	//Data to send, mode = 1 = basic data
+	  send(senderIDTemp, dataTemp, 10, false);		//Transmit a message to the sender of the ping with all the data, 10 bytes and no acknoladgement nessercary
+	  setMode(RF69_MODE_RX);
+	  return (true);
+}	//Basic data transmission
+
+bool RFM69::TelemSendStand(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz){
+	if(!active){return false;}
+	setMode(RF69_MODE_TX);						//Ready to transmit 
+	uint16_t dataTemp = [2,time, v1, v2, alt, Ax, Ay, Az, Gx, Gy, Gz];	//Data to send, mode = 2 = standard data
+	send(senderIDTemp, dataTemp, 22, false);		//Transmit a message to the sender of the ping with all the data, 22 bytes and no acknoladgement nessercary
+	setMode(RF69_MODE_RX);
+	return(true);
+}	//Standard data transmission
+
+bool RFM69::TelemSendFull(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz, float velX, float velY, float velZ, float posX, float posY, float posZ, float pitch, float roll, float yaw){
+	if(!active){return false;}
+	setMode(RF69_MODE_TX);						//Ready to transmit 
+	uint16_t dataTemp = [3,time, v1, v2, alt, Ax, Ay, Az, Gx, Gy, Gz, velX, velY, velZ, posX, posY, posZ, pitch, roll, yaw];	//Data to send, mode = 3 = all data
+	send(senderIDTemp, dataTemp, 40, false);		//Transmit a message to the sender of the ping with all the data, 40 bytes and no acknoladgement nessercary
+	setMode(RF69_MODE_RX);
+	return(true)
+}//All of the data transmission
