@@ -1082,8 +1082,8 @@ void RFM69::TelemWait(){
 bool RFM69::TelemSendBasic(float time, float v1, float v2, float alt){
 	if(!active){return false;}
 	  setMode(RF69_MODE_TX);						//Ready to transmit 
-	  uint16_t dataTemp = [1,time, v1, v2, alt];	//Data to send, mode = 1 = basic data
-	  send(senderIDTemp, dataTemp, 10, false);		//Transmit a message to the sender of the ping with all the data, 10 bytes and no acknoladgement nessercary
+	  float dataTemp = [1,time, v1, v2, alt];	//Data to send, mode = 1 = basic data
+	  send(senderIDTemp, dataTemp, 20, false);		//Transmit a message to the sender of the ping with all the data, 20 bytes and no acknoladgement nessercary
 	  setMode(RF69_MODE_RX);
 	  return (true);
 }	//Basic data transmission
@@ -1091,8 +1091,8 @@ bool RFM69::TelemSendBasic(float time, float v1, float v2, float alt){
 bool RFM69::TelemSendStand(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz){
 	if(!active){return false;}
 	setMode(RF69_MODE_TX);						//Ready to transmit 
-	uint16_t dataTemp = [2,time, v1, v2, alt, Ax, Ay, Az, Gx, Gy, Gz];	//Data to send, mode = 2 = standard data
-	send(senderIDTemp, dataTemp, 22, false);		//Transmit a message to the sender of the ping with all the data, 22 bytes and no acknoladgement nessercary
+	float dataTemp = [2,time, v1, v2, alt, Ax, Ay, Az, Gx, Gy, Gz];	//Data to send, mode = 2 = standard data
+	send(senderIDTemp, dataTemp, 44, false);		//Transmit a message to the sender of the ping with all the data, 44 bytes and no acknoladgement nessercary
 	setMode(RF69_MODE_RX);
 	return(true);
 }	//Standard data transmission
@@ -1100,8 +1100,15 @@ bool RFM69::TelemSendStand(float time, float v1, float v2, float alt, float Ax, 
 bool RFM69::TelemSendFull(float time, float v1, float v2, float alt, float Ax, float Ay, float Az, float Gx, float Gy, float Gz, float velX, float velY, float velZ, float posX, float posY, float posZ, float pitch, float roll, float yaw){
 	if(!active){return false;}
 	setMode(RF69_MODE_TX);						//Ready to transmit 
-	uint16_t dataTemp = [3,time, v1, v2, alt, Ax, Ay, Az, Gx, Gy, Gz, velX, velY, velZ, posX, posY, posZ, pitch, roll, yaw];	//Data to send, mode = 3 = all data
-	send(senderIDTemp, dataTemp, 40, false);		//Transmit a message to the sender of the ping with all the data, 40 bytes and no acknoladgement nessercary
+	if (tx1){//Becuase the data needs to be sent in 2 parts only send half per call
+		uint16_t dataTemp = [3,time, v1, v2, alt, Ax, Ay, Az, Gx, Gy, Gz, velX, velY, velZ];	//Data to send, mode = 3 = all data
+		send(senderIDTemp, dataTemp, 56, false);		//Transmit a message to the sender of the ping with all the data, 40 bytes and no acknoladgement nessercary 
+	}
+	else{
+		dataTemp = [posX, posY, posZ, pitch, roll, yaw,4]
+		send(senderIDTemp, dataTemp, 30, false);		//Transmit a message to the sender of the ping with all the data, 40 bytes and no acknoladgement nessercary 
+	}
+	tx1 = !tx1;
 	setMode(RF69_MODE_RX);
 	return(true)
 }//All of the data transmission

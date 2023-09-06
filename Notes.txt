@@ -13,8 +13,12 @@ Frequencies
 	910mhz 		Reserved for rocket launch commands
 	916mhz		Main data frequency
 
-TelemTxSetup(rocketID, interupt pin(defualt to pin 9 next to cs), cs pin(default is 10)
+TelemTxSetup(rocketID, interupt pin(defualt to pin 9 next to cs), cs pin(default is 10))
 
 Reserved IDS:
 0 - Calling all recievers
 1-9 Ground stations
+
+Special codes
+11, device ID - that device is active
+12, device ID - that device is inactive
